@@ -1,0 +1,225 @@
+---
+title: logging failures
+---
+
+
+```{r}
+library(log4r)
+log_debug <- log4r::debug
+log_info <- log4r::info
+log_warn <- log4r::warn
+log_error <- log4r::error
+log_fatal <- log4r::fatal
+```
+
+```{r}
+logger <- logger(
+  appenders = console_appender(logfmt_log_layout())
+)
+```
+
+```{r}
+thing_that_fails <- function() {
+  rlang::abort("unable to connect to db")
+}
+```
+
+consider the following:
+```r
+tryCatch({
+    thing_that_fails()
+}, error = function(e) {
+    # lets take a look at the structure before we mess with logging it
+    str(e)
+})
+```
+
+The structure looks like:
+
+```r
+List of 5
+ $ message: chr "unable to connect to db"
+ $ trace  :Classes ‘rlang_trace’, ‘rlib_trace’, ‘tbl’ and 'data.frame':	6 obs. of  6 variables:
+  ..$ call       :List of 6
+  .. ..$ : language tryCatch({     thing_that_fails() ...
+  .. ..$ : language tryCatchList(expr, classes, parentenv, handlers)
+  .. ..$ : language tryCatchOne(expr, names, parentenv, handlers[[1L]])
+  .. ..$ : language doTryCatch(return(expr), name, parentenv, handler)
+  .. ..$ : language thing_that_fails()
+  .. .. ..- attr(*, "srcref")= 'srcref' int [1:8] 2 5 2 22 5 22 2 2
+  .. .. .. ..- attr(*, "srcfile")=Classes 'srcfilecopy', 'srcfile' <environment: 0x328b84690> 
+  .. ..$ : language rlang::abort("unable to connect to db")
+  .. .. ..- attr(*, "srcref")= 'srcref' int [1:8] 2 5 2 43 5 43 2 2
+  .. .. .. ..- attr(*, "srcfile")=Classes 'srcfilecopy', 'srcfile' <environment: 0x328be2358> 
+  ..$ parent     : int [1:6] 0 1 2 3 0 5
+  ..$ visible    : logi [1:6] TRUE TRUE TRUE TRUE TRUE FALSE
+  ..$ namespace  : chr [1:6] "base" "base" "base" "base" ...
+  ..$ scope      : chr [1:6] "::" "local" "local" "local" ...
+  ..$ error_frame: logi [1:6] FALSE FALSE FALSE FALSE TRUE FALSE
+  ..- attr(*, "version")= int 2
+ $ parent : NULL
+ $ rlang  :List of 1
+  ..$ inherit: logi TRUE
+ $ call   : language thing_that_fails()
+  ..- attr(*, "srcref")= 'srcref' int [1:8] 2 5 2 22 5 22 2 2
+  .. ..- attr(*, "srcfile")=Classes 'srcfilecopy', 'srcfile' <environment: 0x328b84690> 
+ - attr(*, "class")= chr [1:3] "rlang_error" "error" "condition"
+ ```
+
+```{r}
+tryCatch(
+  {
+    thing_that_fails()
+  },
+  error = function(e) {
+    log_error(logger, message = "thing failed", error = e)
+  }
+)
+```
+
+```txt
+level=ERROR ts=2024-11-17T22:56:39Z message="thing failed" error=<omitted>
+```
+
+```{r}
+tryCatch(
+  {
+    thing_that_fails()
+  },
+  error = function(e) {
+    log_error(logger, message = "thing failed", error = e$message)
+  }
+)
+```
+
+```{r}
+tryCatch(
+  {
+    thing_that_fails()
+  },
+  error = function(e) {
+    # e <<- e
+    log_error(logger, message = "thing failed", error = e$message, call = as.character(e$call))
+  }
+)
+```
+
+
+```{r}
+thing_that_fails_with_args <- function(arg1, arg2, ...) {
+  force(arg1)
+  force(arg2)
+  rlang::abort("boom")
+}
+```
+
+```{r}
+tryCatch(
+  {
+    thing_that_fails_with_args("param1", 2)
+  },
+  error = function(e) {
+    # this will lose its args since the returned call from character is a vector
+    # > as.character(e$call)
+    # [1] "thing_that_fails_with_args" "param1"                     "2"
+    log_error(logger, message = "thing failed", error = e$message, call = as.character(e$call))
+  }
+)
+```
+
+We can write a little helper function for logging
+
+```{r}
+extract_call <- function(.call) {
+  if (!inherits(.call, "call")) {
+    return(NULL)
+  }
+  glue::glue("{fn}({rest})", fn = .call[1], rest = paste0(.call[-1], collapse = ","))
+}
+```
+
+
+
+```{r}
+tryCatch(
+  {
+    thing_that_fails_with_args("param1", 2, "some dots", key = "value", df = Theoph)
+  },
+  error = function(e) {
+    e <<- e
+    # this will lose its args since the returned call from character is a vector
+    # > as.character(e$call)
+    # [1] "thing_that_fails_with_args" "param1"                     "2"
+    log_error(logger, message = "thing failed", error = e$message, call = extract_call(e$call))
+  }
+)
+```
+
+
+```{r}
+tryCatch(
+  {
+    thing_that_fails()
+  },
+  error = function(e) {
+    e <<- e
+    # this will lose its args since the returned call from character is a vector
+    # > as.character(e$call)
+    # [1] "thing_that_fails_with_args" "param1"                     "2"
+    log_error(logger, message = "thing failed", error = e$message, call = extract_call(e$call))
+  }
+)
+```
+
+Lets consider a more realistic scenario, where we might take some user input, need to do a conversion
+
+```{r}
+check_weight <- function(wt_lbs) {
+  if (wt_lbs <= 3) {
+    rlang::abort("weight must be above 3")
+  }
+  if (wt_lbs >= 1000) {
+    rlang::abort("no human could be this big!")
+  }
+  return(invisible(TRUE))
+}
+```
+
+```{r}
+tryCatch(
+  {
+    check_weight(9001)
+  },
+  error = function(e) {
+    log_error(logger, message = "thing failed", error = e$message, call = extract_call(e$call))
+  }
+)
+```
+
+```{r}
+check_weight_base <- function(wt_lbs) {
+  if (wt_lbs <= 3) {
+    stop("weight must be above 3", call. = FALSE)
+  }
+  if (wt_lbs >= 1000) {
+    stop("no human could be this big!")
+  }
+  return(invisible(TRUE))
+}
+```
+
+```{r}
+tryCatch(
+  {
+    check_weight_base(9001)
+  },
+  error = function(e) {
+    log_error(logger,
+      message = "thing failed", error = e$message,
+      call = extract_call(e$call)
+    )
+  }
+)
+```
+
+## re-throwing errors

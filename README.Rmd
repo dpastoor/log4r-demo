@@ -1,0 +1,73 @@
+---
+output: github_document
+---
+
+<!-- README.md is generated from README.Rmd. Please edit that file -->
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+```
+
+# log4r-demo
+
+<!-- badges: start -->
+<!-- badges: end -->
+
+The goal of log4r-demo is to showcase how log4r can work under various scenarios.
+
+In the upcoming release, log4r will use namespaced functions, so lets start using that now:
+
+```{r}
+library(log4r)
+log_info <- log4r::info
+log_warn <- log4r::warn
+log_error <- log4r::error
+log_debug <- log4r::debug
+```
+
+```{r}
+start_time <- Sys.time() - 1.5 # lets pretend to let this work for 1.5 seconds
+logger <- logger(threshold = "DEBUG", appenders = console_appender(logfmt_log_layout()))
+log_debug(
+  logger, 
+  message = "processed entries", 
+  file = whereami::whereami(), # if we want to know where this is coming from
+  duration = difftime(Sys.time(), start_time, units = "secs")
+)
+```
+
+One of the other nice things is functions invoked as fields will only
+be evaluated if they are used.
+
+For example:
+
+```{r}
+did_i_run <- function(context) {
+  message("yes I ran in context: ", context)
+  return(context)
+}
+logger <- logger(appenders = console_appender(logfmt_log_layout()))
+did_i_run("in chunk")
+
+# this will print and also store the context in the output
+log_info(logger, message = "an info message", output = did_i_run("in info log"))
+
+# if this were to eagerly evaluate this would print "yes I ran in context: in debug log" even if the log doesn't print
+log_debug(logger, message = "a debug message", output = did_i_run("in debug log"))
+
+# prove code evaluated all the way through here
+did_i_run("after log messages")
+```
+
+This means you can invoke pontentially "expensive" computation in
+debug messages without worrying about them being unnecessarily executed.
+
+<details>
+```{r}
+sessionInfo()
+```
+</details>
+
