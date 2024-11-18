@@ -2,8 +2,6 @@
 title: logging inside a package
 ---
 
-
-
 ```{r}
 devtools::load_all("./pkg.log4r")
 library(log4r)
@@ -65,7 +63,9 @@ do_work(2)
 cli_fmt_with_fields <- function(level, ...) {
     fields <- list(...)
     time_format <- "%Y-%m-%dT%H:%M:%SZ"
-    encoded <- log4r:::encode_logfmt(c(timestamp =log4r:::fmt_current_time(time_format, TRUE), fields))
+    # drop time formatting for example where we wrap the output with a logger anyway
+    #encoded <- log4r:::encode_logfmt(c(timestamp =log4r:::fmt_current_time(time_format, TRUE), fields))
+    encoded <- log4r:::encode_logfmt(fields)
     if (level == "INFO") {
         cli::cli_alert_success(encoded)
     } else if (level == "WARN") {
@@ -77,10 +77,6 @@ cli_fmt_with_fields <- function(level, ...) {
     }
     return(NULL)
 }
-```
-
-
-```{r}
 logger <- logger("DEBUG",
   appenders = console_appender(cli_fmt_with_fields)
 )
